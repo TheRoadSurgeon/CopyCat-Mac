@@ -1,0 +1,53 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs & editors
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# Python virtual environments
+.venv/
+venv/
+env/
+
+# Python bytecode & caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.cache/
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Coverage / testing
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Env / local config & logs
+.env
+.env.*
+*.local
+*.log
+
+# Editor swap files
+*.swp
+*.swo
