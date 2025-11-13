@@ -1,57 +1,41 @@
-# This file contains functions used for formatting and transforming text.
-# Changes:
-# - add_indent now preserves blank lines and indents each line reliably.
-# - combine_words now returns the final string (and handles missing words.txt gracefully).
+# core/text_cleaner.py
+# Formatting and transforming helpers for CopyCat.
+# - Preserves newlines when extracting lists (no join_paragraphs here)
+# - Fixes missing-variable bug when no bullets are found
+# - CF_HTML offsets computed in BYTES (safe for Unicode/emoji)
 
 import re
 
 # --- Basic whitespace/paragraph utilities ---
 
 def combine_paragraphs(text: str) -> str:
-    """
-    Collapse multiple consecutive newlines to a single newline.
-    Leaves single newlines (paragraph breaks) intact.
-    """
+    """Collapse multiple consecutive newlines to a single newline."""
     if not isinstance(text, str):
         text = str(text) if text is not None else ""
-    # Normalize CRLF to LF first
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     return re.sub(r"\n{2,}", "\n", text)
 
 
 def join_paragraphs(text: str) -> str:
-    """
-    Remove all newlines so the content becomes a single flowing paragraph.
-    Tabs are also normalized to a single space here.
-    """
+    """Remove all newlines so the content becomes a single flowing paragraph."""
     if not isinstance(text, str):
         text = str(text) if text is not None else ""
-    # First, reduce extra blank lines to keep behavior predictable,
-    # then replace remaining newlines with spaces.
     text = combine_paragraphs(text)
     text = text.replace("\n", " ")
-    # Normalize any runs of whitespace to a single space
     return re.sub(r"[ \t]+", " ", text)
 
 
 def clean_spaces(text: str) -> str:
-    """
-    Standardize spaces: collapse multiple spaces to one, collapse consecutive tabs to one.
-    """
+    """Collapse multiple spaces/tabs to single instances."""
     if not isinstance(text, str):
         text = str(text) if text is not None else ""
-    # Collapse runs of spaces to a single space
     text = re.sub(r" +", " ", text)
-    # Collapse runs of tabs to a single tab
     text = re.sub(r"\t+", "\t", text)
     return text
 
 
 def add_indent(text: str, space_number: int) -> str:
-    """
-    Add a fixed number of spaces at the start of every line.
-    Preserves blank lines and existing line breaks.
-    """
+    """Indent every line by N spaces, preserving blank lines."""
     if not isinstance(text, str):
         text = str(text) if text is not None else ""
     try:
@@ -61,19 +45,15 @@ def add_indent(text: str, space_number: int) -> str:
     if n <= 0:
         return text
     indentation = " " * n
-    # Prefix indentation on the first line and after every newline
     return indentation + text.replace("\n", "\n" + indentation)
 
 
-# --- Word combination utility (optional / dictionary-assisted) ---
+# --- Word combination utility (dictionary-assisted, optional) ---
 
 def combine_words(text: str) -> str:
     """
-    Combine "broken" words that are hyphenated or split across line breaks.
-    Attempts to use a dictionary (words.txt) to validate combinations.
-    If words.txt is missing or unreadable, returns a conservative cleaned string.
-
-    NOTE: This function is heuristic; use with care for non-English text.
+    Combine 'broken' words split by hyphens/line breaks using a dictionary (words.txt) when available.
+    Returns a conservative cleaned string if words.txt is missing.
     """
     if not isinstance(text, str):
         text = str(text) if text is not None else ""
@@ -82,241 +62,168 @@ def combine_words(text: str) -> str:
     work = text.replace("\n", sentinel)
     strings = re.split(r'[\s,\t]+', work)
 
-    # Try to load a dictionary; if not present, do a minimal cleanup and return.
     try:
         with open('words.txt', encoding='utf-8') as fh:
             dict_words = set(fh.read().split())
     except Exception:
-        # Minimal cleanup fallback: restore newlines and collapse whitespace.
         minimal = work.replace(sentinel, "\n")
         return re.sub(r"[ \t]+", " ", minimal)
 
-    prev_word = ""
     i = 0
     length = len(strings)
-
     while i < length - 1:
         prev_word = strings[i]
         word = strings[i + 1]
-        combo = prev_word + word
 
-        # Repair words that had sentinel in the middle (linebreak inside a token)
-        if (sentinel in prev_word) and (prev_word.find(sentinel) != len(prev_word) - len(sentinel)):
-            strings.pop(i)
-            prev_word = prev_word.replace(sentinel, "")
-            strings.insert(i, prev_word)
-        elif sentinel in prev_word:
-            strings.pop(i)
-            prev_word = prev_word.replace(sentinel, "\n")
-            strings.insert(i, prev_word)
-
-        if (sentinel in word) and (word.find(sentinel) != len(word) - len(sentinel)):
-            strings.pop(i + 1)
-            word = word.replace(sentinel, "")
-            strings.insert(i + 1, word)
-        elif sentinel in word:
-            strings.pop(i + 1)
-            word = word.replace(sentinel, "\n")
-            strings.insert(i + 1, word)
-
-        # Recompute because we may have changed entries
+        # Repair sentinel inside tokens
+        if sentinel in prev_word:
+            if not prev_word.endswith(sentinel):
+                strings[i] = prev_word.replace(sentinel, "")
+            else:
+                strings[i] = prev_word.replace(sentinel, "\n")
         prev_word = strings[i]
-        word = strings[i + 1]
-        combo = prev_word + word
 
-        # If either side contains a mid-token hyphen and the token isn't valid, try removing the hyphen
-        if ("-" in prev_word and not prev_word.endswith("-") and prev_word not in dict_words):
+        if sentinel in word:
+            if not word.endswith(sentinel):
+                strings[i + 1] = word.replace(sentinel, "")
+            else:
+                strings[i + 1] = word.replace(sentinel, "\n")
+        word = strings[i + 1]
+
+        # Remove mid-token hyphens for invalid tokens
+        if "-" in prev_word and not prev_word.endswith("-") and prev_word not in dict_words:
             strings[i] = prev_word.replace("-", "")
             prev_word = strings[i]
-
-        if ("-" in word and not word.endswith("-") and word not in dict_words):
+        if "-" in word and not word.endswith("-") and word not in dict_words:
             strings[i + 1] = word.replace("-", "")
             word = strings[i + 1]
 
         combo = prev_word + word
-
-        # If combo is a valid dictionary word but parts are not, merge them
         if (prev_word not in dict_words or word not in dict_words) and (combo in dict_words):
-            # Replace the pair with the combo
-            strings.pop(i)       # remove prev_word
-            strings.pop(i)       # remove word (now at i after previous pop)
+            # Merge the pair
+            strings.pop(i)
+            strings.pop(i)
             strings.insert(i, combo)
-            # Do not advance i; re-check from this position
             length = len(strings)
             continue
 
         i += 1
         length = len(strings)
 
-    # Restore newlines and collapse extra whitespace runs
     result = " ".join(strings).replace(sentinel, "\n")
     result = re.sub(r"[ \t]+", " ", result)
     return result
 
 
 # --- List helpers (bullets) ---
-# bullet_pattern = re.compile(
-#     r"""
-#     (?P<bullet>
-#         [*•▪▪-]           # common bullet chars
-#         | \d+[.)-]?       # numbered bullets
-#     )
-#     [ \n\t\r\f\v\u00A0]*    # spaces
-#     """,
-#     re.VERBOSE,
-# )
 
-# def extract_list_items_with_bullets(text):
-#     text=text.strip()
-#     bullets = []
-#     items = []
+# Bullet token at the *start of a line*:
+#  - common symbols: • * -   ▪
+#  - 1..3 digit numbers with optional . ) or -
+_LINE_BULLET_RE = re.compile(
+    r"(?m)^\s*(?P<bullet>([*•▪-]|\d{1,3}[.)-]?))\s+"
+)
 
-#     pos = 0
-#     for m in bullet_pattern.finditer(text):
-#         bullet = m.group('bullet')
-#         start = m.end()
-
-#         # Find next bullet to determine span
-#         next_m = bullet_pattern.search(text, start)
-#         end = next_m.start() if next_m else len(text)
-
-#         item = text[start:end].strip()
-
-#         bullets.append(bullet)
-#         items.append(item)
-
-#         pos = end
-
-#     # If nothing matched, treat each line as plain text
-#     if len(bullets)<1:
-#         print()
-#         lines = text.splitlines()
-#         bullets = [None] * len(lines)
-#         items = lines
-
-#     return bullets, items
-# bullet_pattern = re.compile(r"""
-#     (                   # Capture bullet symbol
-#         [*•▪]         # Bulleted characters
-#         | \d{1,3}+(?:[.)])    # Or numbered bullets
-#     )
-#     [ \t\r\f\v\u00A0]*  # Allow multiple regular & non-breaking spaces/tabs
-#     # (?:\n+)?            # Optionally allow newlines after bullet
-# """, re.VERBOSE)
-
-bullet_pattern = re.compile(r"""
-    (
-        [*•▪]                     # bullet chars
-        |
-        (?<!\d)                     # must NOT be part of a larger number on left
-        \d{1,3}                     # 1 to 3 digits only
-        (?:[.)-])?                  # optional punctuation
-        (?!\d)                      # must NOT be part of a larger number on right
-    )
-    [ \t\r\f\v\u00A0]*              # whitespace
-""", re.VERBOSE)
-def extract_list_items_with_bullets(text):
+def extract_list_items_with_bullets(text: str):
     """
-    Extracts list items and their bullets from a single line of text.
-    Returns two separate lists: (bullets_list, text_list).
+    Extract (bullets_list, text_list) from multi-line text.
+    - Preserves newlines (does NOT join paragraphs here).
+    - If no explicit bullets found, returns ([], [lines...]) so the caller
+      can decide whether to bulletize plain lines.
     """
-    text=join_paragraphs(text)
-    
-    # 1. Split the text, preserving the bullets in the results
-    parts = bullet_pattern.split(text.strip())
-    
-    # Remove the first element if it's an empty string (from the start of the split)
-    if parts and parts[0] == '':
-        parts.pop(0)
+    if not isinstance(text, str):
+        text = str(text) if text is not None else ""
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
-    # 2. Separate the bullets and the item text
     bullets_list = []
     text_list = []
-    
-    # Iterate through the parts in pairs: (bullet, item_text)
-    for i in range(0, len(parts), 2):
-        if i + 1 < len(parts):
-            # The bullet is the odd index part (0, 2, 4, ...)
-            bullet = parts[i].strip()
-            # The text is the even index part (1, 3, 5, ...)
-            item_text = parts[i+1].strip()
-            
-            bullets_list.append(bullet)
-            text_list.append(item_text)
-    
-    if len(bullets_list) == 0: # may be a text without bullets
-        lines=text.splitlines()
-        if len(lines)>0:
-            bullet_list=[None] * len(lines)
-            text_list=lines
+
+    matches = list(_LINE_BULLET_RE.finditer(text))
+    if matches:
+        for idx, m in enumerate(matches):
+            bullet = m.group("bullet").strip()
+            start = m.end()
+            end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+            item = text[start:end].strip()
+            if item:
+                bullets_list.append(bullet)
+                text_list.append(item)
+    else:
+        # No bullets -> return cleaned non-empty lines; bullets_list stays empty
+        lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
+        text_list = lines
 
     return bullets_list, text_list
 
+
 def list_to_html_fragment(items, bullets):
-    if len(bullets)<1:
+    """
+    Build an HTML <ul>/<ol> fragment from parallel lists of items & bullets.
+    Switches lists when ordered/unordered style changes.
+    """
+    if not bullets or not items:
+        # Graceful fallback
+        if items:
+            # default to unordered 'disc'
+            return "<ul>" + "".join(f"\n  <li>{i}</li>" for i in items) + "\n</ul>"
         return "<p></p>"
-    previous_bullet=bullets[0]
 
-    html_fragment, isNumeric=_get_html_bullet_style(previous_bullet)
-    
-    for i in range(len(bullets)):
-        if previous_bullet!=bullets[i]:
-            previous_bullet=bullets[i]
-            numbered_pattern=re.compile(r"""\d+[.-]?""", re.VERBOSE)
-            match = numbered_pattern.match(bullets[i])
-            if not match: 
-                # end the previous list
-                if isNumeric:
-                    html_fragment+="\n</ol>"
-                else:
-                    html_fragment+="\n</ul>"
-                # start new list
-                new_list_tag, isNumeric=_get_html_bullet_style(bullets[i])
-                html_fragment+=new_list_tag
-        html_fragment+=f"\n  <li> {items[i]} </li>"
-    # end the list
-    if isNumeric:
-        html_fragment+="\n</ol>"
-    else:
-        html_fragment+="\n</ul>"
-    return html_fragment
+    def bullet_kind(b):
+        # returns ("ordered" | "unordered", style_name_if_unordered)
+        if b is None or b == "":
+            return ("unordered", "none")
+        if re.match(r"^\d{1,3}[.)-]?$", str(b)):
+            return ("ordered", "decimal")
+        if b == "-":
+            return ("unordered", "square")
+        if b == "•":
+            return ("unordered", "disc")
+        # default unordered
+        return ("unordered", "disc")
 
-def _get_html_bullet_style(bullet_char):
-    isNumeric=False
+    html = []
+    cur_type, cur_style = bullet_kind(bullets[0])
 
-    if bullet_char=='•':
-        bullet_style="circle"
-    elif bullet_char=="-":
-        bullet_style="square"
-    elif bullet_char is None:
-        bullet_style="none"
-    else: #default bullet point is circle
-        bullet_style="circle"
-    html_style=f"""<ul style="list-style-type: {bullet_style};">"""
+    def open_list(t, st):
+        if t == "ordered":
+            html.append(f'<ol style="list-style-type: decimal;">')
+        else:
+            if st == "none":
+                html.append(f'<ul style="list-style-type: none;">')
+            else:
+                html.append(f'<ul style="list-style-type: {st};">')
 
-    if bullet_char is not None:
-        # for ordered lists
-        numbered_pattern=re.compile(r"""\d+[.)-]?""", re.VERBOSE)
-        match = numbered_pattern.match(bullet_char)
-        if match:
-            print("matched decimal")
-            isNumeric=True
-            bullet_style="decimal"
-            html_style=f"""<ol style="list-style-type: {bullet_style}";>"""
-    return html_style, isNumeric
+    def close_list(t):
+        html.append("</ol>" if t == "ordered" else "</ul>")
+
+    open_list(cur_type, cur_style)
+
+    for b, it in zip(bullets, items):
+        t, st = bullet_kind(b)
+        if (t != cur_type) or (t == "unordered" and st != cur_style):
+            close_list(cur_type)
+            cur_type, cur_style = t, st
+            open_list(cur_type, cur_style)
+        html.append(f"  <li>{it}</li>")
+
+    close_list(cur_type)
+    return "\n" + "\n".join(html) + "\n"
 
 
-def create_rich_format_output(html_fragment):
-    # Wrap fragment in the required structure
+def create_rich_format_output(html_fragment: str) -> str:
+    """
+    Create a Windows CF_HTML payload with correct byte offsets.
+    Caller should encode to UTF-8 before placing on clipboard.
+    """
+    if not isinstance(html_fragment, str):
+        html_fragment = str(html_fragment) if html_fragment is not None else ""
+
     html = (
         "<html><body>\n"
-        "<!--StartFragment-->" +
-        html_fragment +
-        "<!--EndFragment-->\n"
+        "<!--StartFragment-->" + html_fragment + "<!--EndFragment-->\n"
         "</body></html>"
     )
 
-    # Placeholder header
     header_template = (
         "Version:0.9\r\n"
         "StartHTML:{:08d}\r\n"
@@ -325,42 +232,24 @@ def create_rich_format_output(html_fragment):
         "EndFragment:{:08d}\r\n"
     )
 
-    # First, build with zeros to measure header length
-    header = header_template.format(0, 0, 0, 0)
-    full = header + html
+    # First build a provisional header to measure byte offsets
+    provisional_header = header_template.format(0, 0, 0, 0)
+    header_bytes = provisional_header.encode("ascii")
+    html_bytes = html.encode("utf-8")
 
-    # Now compute byte offsets
-    start_html = len(header)
-    end_html = len(full)
+    start_html = len(header_bytes)
+    end_html = start_html + len(html_bytes)
 
-    start_fragment = full.index("<!--StartFragment-->") + len("<!--StartFragment-->")
-    end_fragment = full.index("<!--EndFragment-->")
+    sf_marker = b"<!--StartFragment-->"
+    ef_marker = b"<!--EndFragment-->"
+    try:
+        start_fragment = start_html + html_bytes.index(sf_marker) + len(sf_marker)
+        end_fragment = start_html + html_bytes.index(ef_marker)
+    except ValueError:
+        # If markers are missing (shouldn't happen), fall back to whole doc
+        start_fragment = start_html
+        end_fragment = end_html
 
-    # Rebuild header with correct offsets
-    header = header_template.format(
-        start_html,
-        end_html,
-        start_fragment,
-        end_fragment
-    )
-
-    full = header + html
-    return full
-
-# def main():
-#     example="1. example\n2. example2\n3. hello"
-#     example="""  Remove subtrees for better generalization 
-# (decrease variance)
-#   Prepruning: Early stopping (e.g. < 5% points)
-#   Postpruning: Grow the whole tree then prune 
-# subtrees that overfit on the pruning set"""
-#     bullets, text =extract_list_items_with_bullets(example)
-#     print(bullets)
-#     print(text)
-#     # print(bullets)
-#     html_fragment=list_to_html_fragment(text, bullets)
-#     print('\n'+html_fragment)
-#     # set_html_clipboard(html_fragment)
-
-# if __name__ == "__main__":
-#     main()
+    header = header_template.format(start_html, end_html, start_fragment, end_fragment)
+    # Return as str; clipboard setter will .encode('utf-8')
+    return header + html
