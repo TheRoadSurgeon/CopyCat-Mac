@@ -52,6 +52,24 @@ pip install -r requirements.txt
 # deactivate
 ```
 
+## Creating Installation Executable (Mac)
+How to build the app. 
+Make sure you have the CopyCat_mac.spec file first.
+
+source .venv/bin/activate
+python3 -m pip install -U -r requirements.txt
+
+rm -rf build dist
+ pyinstaller CopyCat_mac.spec
+
+# if you need to kill any old versions and copy it into the application folder
+killall CopyCat 2>/dev/null || true
+cp -R dist/CopyCat.app /Applications/
+
+# This one is great for error checking in the terminal
+"/Applications/CopyCat.app/Contents/MacOS/CopyCat"
+
+
 ## Creating Installation Executable (Windows)
 Execute `pyinstaller --noconsole --onefile --name CopyCat main.py` to create a CopyCat.exe
 
