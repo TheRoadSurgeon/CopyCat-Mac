@@ -1,8 +1,9 @@
 # core/clipboard_manager.py
 # Cross-platform clipboard + paste helpers with HTML list paste support.
 # - Uses pyperclip for text read/write everywhere
-# - Uses native HTML paste on macOS (NSPasteboard) and Windows (win32clipboard)
+# - Uses native HTML paste on macOS (NSPasteboard) and Windows (win32clipboard/CF_HTML)
 # - Falls back to plain text or typing if needed
+# - Adds begin_shutdown() to suppress any last paste/restore on quit
 
 import time
 import threading
@@ -20,6 +21,14 @@ IS_WINDOWS = platform.system() == "Windows"
 clipboard_history = []
 last_copied = ""
 
+# When True, all paste/restore actions become no-ops (used on app quit)
+_SHUTTING_DOWN = False
+
+def begin_shutdown():
+    """Call this before quitting to prevent any late paste/restore artifacts."""
+    global _SHUTTING_DOWN
+    _SHUTTING_DOWN = True
+
 
 # ---------- Clipboard primitives ----------
 
@@ -30,31 +39,37 @@ def _get_clipboard_text() -> str:
     except Exception:
         return ""
 
-
 def _safe_copy(text: str) -> bool:
+    if _SHUTTING_DOWN:
+        return False
     try:
         pyperclip.copy(text or "")
         return True
     except Exception:
         return False
 
-
 def _restore_clipboard_async(original: str, delay_sec: float = 0.35) -> None:
     def _worker():
+        # Wait a bit so the target app can read the cleaned text during paste
         time.sleep(delay_sec)
+        if _SHUTTING_DOWN:
+            return
         try:
             pyperclip.copy(original or "")
         except Exception:
             pass
     threading.Thread(target=_worker, daemon=True).start()
 
-
 def _paste_via_clipboard(text: str, restore_original: bool = True) -> bool:
+    if _SHUTTING_DOWN:
+        return False
     original = _get_clipboard_text() if restore_original else ""
     if not _safe_copy(text):
         return False
     try:
         time.sleep(0.06)
+        if _SHUTTING_DOWN:
+            return False
         send_paste_shortcut()
         if restore_original:
             _restore_clipboard_async(original)
@@ -87,7 +102,6 @@ def _settings_transforms():
     if not sm or not isinstance(sm.settings, dict):
         return {}
     return sm.settings.get("transforms", {}) or {}
-
 
 def _apply_text_transforms(text: str) -> str:
     t = _settings_transforms()
@@ -130,21 +144,25 @@ def _set_clipboard_html_mac(html: str, plain_fallback: str = "") -> bool:
         from AppKit import NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeString
     except Exception:
         return False
+    if _SHUTTING_DOWN:
+        return False
     try:
         pb = NSPasteboard.generalPasteboard()
         pb.clearContents()
-        pb.setString_forType_(html, NSPasteboardTypeHTML)      # raw HTML on macOS
+        # On macOS: put RAW HTML (no CF_HTML header) to avoid "Version:0.9 ..." artifacts
+        pb.setString_forType_(html, NSPasteboardTypeHTML)
         if plain_fallback:
             pb.setString_forType_(plain_fallback, NSPasteboardTypeString)
         return True
     except Exception:
         return False
 
-
 def _set_clipboard_html_win(cf_html: str) -> bool:
     try:
         import win32clipboard as cb
     except Exception:
+        return False
+    if _SHUTTING_DOWN:
         return False
 
     try:
@@ -172,6 +190,9 @@ def _set_clipboard_html_win(cf_html: str) -> bool:
 # ---------- Public actions ----------
 
 def fix_paste_text():
+    if _SHUTTING_DOWN:
+        return
+
     raw = last_copied or _get_clipboard_text()
     if not isinstance(raw, str):
         raw = str(raw) if raw is not None else ""
@@ -180,23 +201,20 @@ def fix_paste_text():
 
     output = _apply_text_transforms(raw)
 
-    original = _get_clipboard_text()
+    if _paste_via_clipboard(output, restore_original=True):
+        return
+
+    # Final fallback: type it out
     try:
-        if _safe_copy(output):
-            time.sleep(0.06)
-            send_paste_shortcut()
-            _restore_clipboard_async(original)
-            return
+        if not _SHUTTING_DOWN:
+            type_text(output)
     except Exception:
         pass
-
-    try:
-        type_text(output)
-    except Exception:
-        pass
-
 
 def fix_paste_list():
+    if _SHUTTING_DOWN:
+        return
+
     raw = (last_copied or _get_clipboard_text() or "").replace("\r\n", "\n").replace("\r", "\n")
     text = raw.strip()
     if not text:
@@ -246,42 +264,39 @@ def fix_paste_list():
         html_fragment = None
         cf_html_payload = None
 
-    original = _get_clipboard_text()
-
-    # macOS expects raw HTML (no CF_HTML header)
+    # macOS expects raw HTML (no CF_HTML header) to avoid artifacts
     if IS_MAC and html_fragment:
+        original = _get_clipboard_text()
         if _set_clipboard_html_mac(html_fragment, plain_fallback=plain_result.strip("\n")):
             try:
                 time.sleep(0.06)
-                send_paste_shortcut()
-                _restore_clipboard_async(original)
+                if not _SHUTTING_DOWN:
+                    send_paste_shortcut()
+                    _restore_clipboard_async(original)
                 return
             except Exception:
                 pass
 
     # Windows expects CF_HTML (with header/offsets)
     if IS_WINDOWS and cf_html_payload:
+        original = _get_clipboard_text()
         if _set_clipboard_html_win(cf_html_payload):
             try:
                 time.sleep(0.06)
-                send_paste_shortcut()
-                _restore_clipboard_async(original)
+                if not _SHUTTING_DOWN:
+                    send_paste_shortcut()
+                    _restore_clipboard_async(original)
                 return
             except Exception:
                 pass
 
     # Plain text path
-    if _safe_copy(plain_result):
-        try:
-            time.sleep(0.06)
-            send_paste_shortcut()
-            _restore_clipboard_async(original)
-            return
-        except Exception:
-            pass
+    if _paste_via_clipboard(plain_result, restore_original=True):
+        return
 
     # Final fallback: type
     try:
-        type_text(plain_result)
+        if not _SHUTTING_DOWN:
+            type_text(plain_result)
     except Exception:
         pass

@@ -23,15 +23,13 @@ _ALLOWED_TRANSFORM_KEYS = {
     "join_broken_lines",
     "fix_whitespace",
     "combine_words",
-    "indent_mode",     # now a bool in-memory and in JSON (back-compat loader accepts old strings)
+    "indent_mode",     # boolean in-memory
     "indent_size",
     "bulletize_lists",
     "bullet_char",
 }
 
-
 # ---------------------- Helpers: transforms ----------------------
-
 def _as_int(value, default: int) -> int:
     try:
         return int(value)
@@ -39,13 +37,6 @@ def _as_int(value, default: int) -> int:
         return default
 
 def _indent_mode_to_bool(val) -> bool:
-    """
-    Normalize indent_mode to a boolean.
-    - If val is already bool, use it.
-    - If val is "none"/"" -> False
-    - If val is "spaces"/"tab"/any non-empty string -> True
-    - If val is something else (e.g., missing), False.
-    """
     if isinstance(val, bool):
         return val
     if val is None:
@@ -54,9 +45,7 @@ def _indent_mode_to_bool(val) -> bool:
         v = val.strip().lower()
         if v in ("", "none", "no", "false", "0"):
             return False
-        # support older values: "spaces", "tab"
         return True
-    # any other truthy becomes True
     try:
         return bool(val)
     except Exception:
@@ -74,30 +63,22 @@ def _clean_transforms(t: Dict) -> Dict:
     out.setdefault("join_broken_lines", True)
     out.setdefault("fix_whitespace", True)
     out.setdefault("combine_words", True)
-    out.setdefault("indent_mode", False)  # boolean in-memory
+    out.setdefault("indent_mode", False)
     out.setdefault("indent_size", 4)
     out.setdefault("bulletize_lists", False)
     out.setdefault("bullet_char", "•")
 
-    # normalize indent
+    # normalize
     out["indent_mode"] = _indent_mode_to_bool(out.get("indent_mode"))
     out["indent_size"] = max(0, _as_int(out.get("indent_size", 4), 4))
 
-    # normalize bullet char: force single char; keep '•' if empty
     ch = str(out.get("bullet_char", "•")) or "•"
     out["bullet_char"] = ch[0]
 
     return out
 
-
 # ---------------------- Helpers: hotkeys ----------------------
-
 def _parse_action_from_string(name: str):
-    """
-    Best-effort parse: "open_paste_selector" (stable key),
-    "Action.FIX_PASTE_TEXT", or "FIX_PASTE_TEXT".
-    Returns Action or None.
-    """
     if not name:
         return None
 
@@ -113,13 +94,9 @@ def _parse_action_from_string(name: str):
         return None
 
 def _hotkeys_to_json(hk: Dict) -> Dict[str, str]:
-    """
-    In-memory keys (Action or str) -> JSON string keys.
-    """
     out: Dict[str, str] = {}
     if not isinstance(hk, dict):
         return out
-
     for k, v in hk.items():
         if isinstance(k, Action):
             json_key = ACTION_TO_KEY.get(k, k.name.lower())
@@ -129,13 +106,9 @@ def _hotkeys_to_json(hk: Dict) -> Dict[str, str]:
     return out
 
 def _hotkeys_from_json(hk_json: Dict[str, str]) -> Dict:
-    """
-    JSON string keys -> in-memory keys (Action when recognized, else keep str).
-    """
     out: Dict = {}
     if not isinstance(hk_json, dict):
         return out
-
     for k, v in hk_json.items():
         act = _parse_action_from_string(k)
         if act is None:
@@ -145,39 +118,25 @@ def _hotkeys_from_json(hk_json: Dict[str, str]) -> Dict:
     return out
 
 def _dedupe_hotkeys(mapping: Dict) -> Tuple[Dict, Dict[str, Action]]:
-    """
-    Ensure no two actions share the same key combo.
-    Returns:
-      - cleaned mapping (Action/str -> combo) preserving first occurrence
-      - a reverse map {combo: Action} for diagnostics if needed
-    """
     cleaned: Dict = {}
     seen_combo_to_action: Dict[str, Action] = {}
 
-    # Preserve insertion order: first writer wins for a given combo
     for action_or_key, combo in (mapping or {}).items():
         if not combo:
             continue
         combo_norm = str(combo).strip().lower()
         if combo_norm == "":
             continue
-
         if combo_norm in seen_combo_to_action:
-            # duplicate combo -> skip this entry
             continue
-
         cleaned[action_or_key] = combo_norm
         if isinstance(action_or_key, Action):
             seen_combo_to_action[combo_norm] = action_or_key
         else:
-            # keep a placeholder; not strictly needed, but consistent
-            seen_combo_to_action[combo_norm] = None  # unknown/non-Action key
-
+            seen_combo_to_action[combo_norm] = None
     return cleaned, seen_combo_to_action
 
-
 # ---------------------- SettingsManager ----------------------
-
 class SettingsManager:
     """
     Persists ONLY: transforms + hotkeys (atomic).
@@ -200,30 +159,25 @@ class SettingsManager:
                 "join_broken_lines": False,
                 "fix_whitespace": False,
                 "combine_words": False,
-                "indent_mode": False,   # boolean
+                "indent_mode": False,
                 "indent_size": 4,
                 "bulletize_lists": False,
                 "bullet_char": "•",
             },
-            # Copy to avoid accidental external mutation
             "hotkeys": dict(default_hotkeys),
         }
 
     # ---------- Persistence ----------
-
     def load_settings(self) -> Dict:
-        """Load transforms + hotkeys from disk; ignore anything else. Atomic-friendly."""
         self.settings = self._defaults()
 
         if not os.path.exists(SETTINGS_PATH):
-            # First run; nothing to load
             return self.settings
 
         try:
             with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
         except Exception:
-            # If corrupt, back it up and continue with defaults
             try:
                 ts = time.strftime("%Y%m%d-%H%M%S")
                 os.replace(SETTINGS_PATH, SETTINGS_PATH + f".corrupt-{ts}.bak")
@@ -231,11 +185,9 @@ class SettingsManager:
                 pass
             return self.settings
 
-        # Transforms
         if "transforms" in data:
             self.settings["transforms"] = _clean_transforms(data["transforms"])
 
-        # Hotkeys
         if "hotkeys" in data:
             loaded = _hotkeys_from_json(data["hotkeys"])
             merged = dict(self.settings["hotkeys"])
@@ -246,8 +198,6 @@ class SettingsManager:
         return self.settings
 
     def save_settings(self):
-        """Atomic save of transforms + hotkeys only."""
-        # Ensure transforms are clean and hotkeys deduped before persisting
         transforms = _clean_transforms(self.settings.get("transforms", {}))
         hotkeys = self.settings.get("hotkeys", {})
         hotkeys, _ = _dedupe_hotkeys(hotkeys)
@@ -265,24 +215,32 @@ class SettingsManager:
             os.fsync(f.fileno())
         os.replace(tmp, SETTINGS_PATH)
 
-        # Keep normalized in memory
         self.settings["transforms"] = transforms
         self.settings["hotkeys"] = hotkeys
 
     # ---------- Hotkey application ----------
-
     def rebind_hotkeys(self):
         """
-        Apply current in-memory hotkey mapping to the live ShortcutManager.
-        Safe to call multiple times.
+        Normalize keys to Action enums and fully REPLACE the listener mapping so
+        changes take effect immediately without a restart.
         """
-        hotkeys = self.settings.get("hotkeys", {})
-        hotkeys, _ = _dedupe_hotkeys(hotkeys)
-        self.settings["hotkeys"] = hotkeys
+        hk_raw = self.settings.get("hotkeys", {}) or {}
 
+        # 1) Normalize JSON/string keys to Action where possible
+        norm: Dict[Action, str] = {}
+        for k, v in hk_raw.items():
+            act = k if isinstance(k, Action) else _parse_action_from_string(str(k))
+            if act is None:
+                continue
+            norm[act] = (v or "").strip()
+
+        # 2) Dedupe and keep normalized version in memory
+        norm, _ = _dedupe_hotkeys(norm)
+        self.settings["hotkeys"] = norm
+
+        # 3) Replace the running listener mapping (not merge)
         if self.shortcut_manager:
             try:
-                self.shortcut_manager.update_shortcuts(hotkeys)
+                self.shortcut_manager.update_shortcuts(norm, replace=True)
             except Exception:
-                # Non-fatal: the UI can still run, and user can retry from Settings
                 pass

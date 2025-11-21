@@ -251,7 +251,7 @@ def open_settings_window(root: tk.Tk):
     hdr.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
     # ===== Shortcuts =====
-    ttk.Label(frm, text="Shortcuts (use Rebind; fields are read-only)").grid(
+    ttk.Label(frm, text="Shortcuts").grid(
         row=1, column=0, columnspan=2, sticky="w", pady=(0, 6)
     )
 

@@ -1,15 +1,20 @@
 # mac/mac_main.py
-import platform, threading, queue, time, tkinter as tk
+import platform
+import threading
+import queue
+import time
+import signal
+import atexit
+import tkinter as tk
 
 from core.actions import Action
 import core.settings as s
-from core.clipboard_manager import monitor_clipboard
 import core.clipboard_manager as cm
+from core.clipboard_manager import monitor_clipboard
 from core.shortcut_manager import ShortcutManager
 from core.settings_manager import SettingsManager
 from ui.settings import open_settings_window
 from ui.status_icon import StatusIcon
-
 from mac.permissions import (
     ensure_accessibility_trust,
     has_input_monitoring,
@@ -26,12 +31,13 @@ _SETTINGS_DEBOUNCE_SEC = 0.7
 
 
 def process_requests(root: tk.Tk):
+    """Pump the action queue and dispatch UI-safe operations on the Tk main thread."""
     global _last_settings_open
     try:
         while True:
             action = _requests.get_nowait()
             if action == Action.OPEN_PASTE_SELECTOR:
-                # (Optional) if you have a popup selector
+                # TODO: hook your popup if/when needed
                 pass
             elif action == Action.FIX_PASTE_LIST:
                 cm.fix_paste_list()
@@ -44,25 +50,21 @@ def process_requests(root: tk.Tk):
                     root.after(0, lambda: open_settings_window(root))
     except queue.Empty:
         pass
+    # tick again
     root.after(50, lambda: process_requests(root))
 
 
 def _onboard_permissions(root: tk.Tk):
     """
-    Make sure we have Accessibility (to send keys) and Input Monitoring (to listen to keys).
-    This triggers the Accessibility prompt if needed and opens System Settings panes for both.
+    Ensure we have Accessibility (to paste keystrokes) and Input Monitoring (to listen globally).
+    Shows guidance window with buttons to open the relevant System Settings panes if needed.
     """
-    # 1) Accessibility: requestable via API (shows a prompt the first time).
     acc_ok = ensure_accessibility_trust(prompt=True)
-
-    # 2) Input Monitoring: not programmatically promptable (tap will fail).
     im_ok = has_input_monitoring()
 
     if acc_ok and im_ok:
         return
 
-    # Show a tiny guidance window once, so users know what to do.
-    # Keep it minimal to avoid Tk issues when bundled.
     win = tk.Toplevel(root)
     win.title("Permissions required")
     win.geometry("420x220")
@@ -91,15 +93,12 @@ def _onboard_permissions(root: tk.Tk):
     btns = ttk.Frame(win)
     btns.pack(pady=(0, 10))
 
-    def _open_acc():
-        open_accessibility_pane()
-
-    def _open_im():
-        open_input_monitoring_pane()
-
-    ttk.Button(btns, text="Open Accessibility", command=_open_acc).grid(row=0, column=0, padx=6)
-    ttk.Button(btns, text="Open Input Monitoring", command=_open_im).grid(row=0, column=1, padx=6)
-    ttk.Button(btns, text="Close", command=win.destroy).grid(row=0, column=2, padx=6)
+    ttk.Button(btns, text="Open Accessibility", command=open_accessibility_pane)\
+        .grid(row=0, column=0, padx=6)
+    ttk.Button(btns, text="Open Input Monitoring", command=open_input_monitoring_pane)\
+        .grid(row=0, column=1, padx=6)
+    ttk.Button(btns, text="Close", command=win.destroy)\
+        .grid(row=0, column=2, padx=6)
 
 
 def main():
@@ -108,43 +107,73 @@ def main():
     root = tk.Tk()
     root.withdraw()
 
-    # FIRST: ensure required macOS permissions
+    # Ensure permissions up front
     _onboard_permissions(root)
 
     # Start dispatch loop
     root.after(50, lambda: process_requests(root))
 
-    # Settings + hotkeys
+    # Hotkeys + settings
     sm = ShortcutManager(_requests)
     settings_manager = SettingsManager(_requests, sm)
-    s.SETTINGS_MANAGER = settings_manager  # or s.set_settings_manager(settings_manager)
+    # Make the manager discoverable by ui/settings.py via core.settings
+    s.SETTINGS_MANAGER = settings_manager
 
+    # Apply initial hotkeys and start listener
     sm.update_shortcuts(settings_manager.settings["hotkeys"])
     sm.start_hotkey_listener()
 
-    # Clipboard monitor in background
+    # Clipboard monitor (daemon; exits with process)
     threading.Thread(target=monitor_clipboard, daemon=True).start()
 
-    def quit_app():
-        global _status_icon
-        if _status_icon is not None:
-            _status_icon.remove()
-            _status_icon = None
-        root.quit()
+    # --- Clean shutdown helpers ---------------------------------------------
 
+    def _shutdown_sequence():
+        """Idempotent: safe to call multiple times."""
+        try:
+            cm.begin_shutdown()  # stop any late paste/restore artifacts
+        except Exception:
+            pass
+        try:
+            sm.stop()  # detach global hotkey tap cleanly
+        except Exception:
+            pass
+        try:
+            if _status_icon is not None:
+                _status_icon.remove()
+        except Exception:
+            pass
+
+    def quit_app():
+        """Quit action from the status menu or window close."""
+        _shutdown_sequence()
+        try:
+            root.quit()
+            root.destroy()
+        except Exception:
+            pass
+        # Last line: ensure process exit
+        import sys
+        sys.exit(0)
+
+    # Ensure we also guard against external kill/TERM and normal interpreter exit
+    atexit.register(_shutdown_sequence)
+    signal.signal(signal.SIGTERM, lambda *_: quit_app())
+    signal.signal(signal.SIGINT,  lambda *_: quit_app())
+
+    # Status icon menu hooks
     def open_settings_from_status():
         _requests.put(Action.SHOW_SETTING)
 
     _status_icon = StatusIcon(on_quit=quit_app, on_settings=open_settings_from_status)
 
+    # If a Tk window ever shows, close = quit
     root.protocol("WM_DELETE_WINDOW", quit_app)
 
     try:
         root.mainloop()
     finally:
-        if _status_icon is not None:
-            _status_icon.remove()
-        sm.stop()
+        _shutdown_sequence()
 
 
 if __name__ == "__main__":
