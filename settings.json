@@ -1,0 +1,18 @@
+{
+  "transforms": {
+    "combine_paragraphs": true,
+    "join_broken_lines": false,
+    "fix_whitespace": false,
+    "combine_words": false,
+    "indent_mode": false,
+    "indent_size": 8,
+    "bulletize_lists": true,
+    "bullet_char": "•"
+  },
+  "hotkeys": {
+    "open_paste_selector": "<cmd>+<shift>+v",
+    "fix_paste_text": "<cmd>+<shift>+u",
+    "fix_paste_list": "<cmd>+<shift>+l",
+    "show_setting": "<cmd>+<shift>+s"
+  }
+}
