@@ -9,6 +9,8 @@ from pynput import keyboard as pk  # for validating combos with HotKey.parse
 import core.settings as s
 from core.actions import Action
 
+copycat_purple = "#6312cd"  # currently used only for active states / future tweaks
+
 IS_MAC = sys.platform == "darwin"
 if IS_MAC:
     try:
@@ -70,6 +72,7 @@ SPECIAL_TO_TOKEN = {
     "Space": "<space>",
 }
 
+
 def _normalize_base_key(keysym: str) -> str | None:
     if keysym in SPECIAL_TO_TOKEN:
         return SPECIAL_TO_TOKEN[keysym]
@@ -79,10 +82,12 @@ def _normalize_base_key(keysym: str) -> str | None:
         return keysym.lower()
     return None
 
+
 def _compose_shortcut(mods: set[str], base_tok: str) -> str:
     order = ["<cmd>", "<ctrl>", "<alt>", "<shift>"]
     mod_list = [m for m in order if m in mods]
     return "+".join(mod_list + ([base_tok] if base_tok else []))
+
 
 def _is_valid_combo(combo: str) -> bool:
     try:
@@ -90,6 +95,7 @@ def _is_valid_combo(combo: str) -> bool:
         return True
     except Exception:
         return False
+
 
 def _duplicate_map(named_values: list[tuple[str, str]]) -> dict[str, list[str]]:
     # returns {combo: [names...]} for combos that appear 2+ times (non-empty)
@@ -101,6 +107,7 @@ def _duplicate_map(named_values: list[tuple[str, str]]) -> dict[str, list[str]]:
         counts.setdefault(v, []).append(name)
     return {k: v for k, v in counts.items() if len(v) > 1}
 
+
 def record_shortcut(parent: tk.Tk, target_var: tk.StringVar, sibling_vars: list[tk.StringVar]):
     """Open modal, capture one chord, write into target_var if valid and not duplicate."""
     top = tk.Toplevel(parent)
@@ -110,6 +117,7 @@ def record_shortcut(parent: tk.Tk, target_var: tk.StringVar, sibling_vars: list[
 
     msg = ttk.Label(top, text="Press the new shortcut… (Esc to cancel)")
     msg.pack(padx=14, pady=(12, 6))
+    # use a neutral, subtle color like the original
     preview = ttk.Label(top, text="", foreground="#666")
     preview.pack(padx=14, pady=(0, 10))
 
@@ -251,20 +259,21 @@ def open_settings_window(root: tk.Tk):
     hdr.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
 
     # ===== Shortcuts =====
-    ttk.Label(frm, text="Shortcuts").grid(
+    ttk.Label(frm, text="Shortcuts (use Rebind; fields are read-only)").grid(
         row=1, column=0, columnspan=2, sticky="w", pady=(0, 6)
     )
 
     # StringVars for read-only entries
     var_hist = tk.StringVar(value=hotkeys[Action.OPEN_PASTE_SELECTOR])
-    var_set  = tk.StringVar(value=hotkeys[Action.SHOW_SETTING])
-    var_qp   = tk.StringVar(value=hotkeys.get(Action.FIX_PASTE_TEXT, "<ctrl>+<alt>+t"))
-    var_pl   = tk.StringVar(value=hotkeys.get(Action.FIX_PASTE_LIST, "<ctrl>+<alt>+l"))
+    var_set = tk.StringVar(value=hotkeys[Action.SHOW_SETTING])
+    var_qp = tk.StringVar(value=hotkeys.get(Action.FIX_PASTE_TEXT, "<ctrl>+<alt>+t"))
+    var_pl = tk.StringVar(value=hotkeys.get(Action.FIX_PASTE_LIST, "<ctrl>+<alt>+l"))
 
     # Helper to make row with readonly entry + Rebind button
     def make_bind_row(row_label: str, row_index: int, var: tk.StringVar, siblings: list[tk.StringVar]):
         ttk.Label(frm, text=row_label).grid(row=row_index, column=0, sticky="w")
-        row = ttk.Frame(frm); row.grid(row=row_index + 1, column=0, sticky="we", padx=(0, 8))
+        row = ttk.Frame(frm)
+        row.grid(row=row_index + 1, column=0, sticky="we", padx=(0, 8))
         row.grid_columnconfigure(0, weight=1)
         entry = ttk.Entry(row, width=28, textvariable=var, state="readonly")
         entry.grid(row=0, column=0, sticky="we")
@@ -274,7 +283,8 @@ def open_settings_window(root: tk.Tk):
 
     def make_bind_row_right(row_label: str, row_index: int, var: tk.StringVar, siblings: list[tk.StringVar]):
         ttk.Label(frm, text=row_label).grid(row=row_index, column=1, sticky="w")
-        row = ttk.Frame(frm); row.grid(row=row_index + 1, column=1, sticky="we", padx=(8, 0))
+        row = ttk.Frame(frm)
+        row.grid(row=row_index + 1, column=1, sticky="we", padx=(8, 0))
         row.grid_columnconfigure(0, weight=1)
         entry = ttk.Entry(row, width=28, textvariable=var, state="readonly")
         entry.grid(row=0, column=0, sticky="we")
@@ -285,7 +295,7 @@ def open_settings_window(root: tk.Tk):
     # Row 1: Open Paste Selector, Open Settings
     e_hist = make_bind_row("Open Paste Selector Pop-Up", 2, var_hist, [var_set, var_qp, var_pl])
     Tooltip(e_hist, "Example: <ctrl>+<alt>+v  or  <cmd>+<shift>+v")
-    e_set  = make_bind_row_right("Open Settings", 2, var_set, [var_hist, var_qp, var_pl])
+    e_set = make_bind_row_right("Open Settings", 2, var_set, [var_hist, var_qp, var_pl])
     Tooltip(e_set, "Example: <ctrl>+<alt>+,  or  <cmd>+s")
 
     # Row 2: Quick Paste, Paste List
@@ -297,13 +307,15 @@ def open_settings_window(root: tk.Tk):
     ttk.Separator(frm).grid(row=6, column=0, columnspan=2, sticky="we", pady=(12, 10))
 
     # ===== Quick Paste Options =====
-    ttk.Label(frm, text="Quick Paste Options").grid(row=7, column=0, columnspan=2, sticky="w", pady=(0, 6))
+    ttk.Label(frm, text="Quick Paste Options").grid(
+        row=7, column=0, columnspan=2, sticky="w", pady=(0, 6)
+    )
 
     v_fix_whitespace = tk.BooleanVar(value=transforms.get("fix_whitespace", False))
     cb_whitespace = ttk.Checkbutton(frm, text="Fix Whitesapce", variable=v_fix_whitespace)
     cb_whitespace.grid(row=8, column=0, columnspan=2, sticky="w")
     Tooltip(cb_whitespace, "Remove excess whitespace")
-    
+
     v_combine = tk.BooleanVar(value=transforms.get("combine_paragraphs", False))
     cb_combine = ttk.Checkbutton(frm, text="Combine paragraphs", variable=v_combine)
     cb_combine.grid(row=9, column=0, columnspan=2, sticky="w")
@@ -345,16 +357,19 @@ def open_settings_window(root: tk.Tk):
             scl.configure(state=state)
         except Exception:
             pass
+
     _toggle_indent()
     v_indent_on.trace_add("write", _toggle_indent)
 
     ttk.Separator(frm).grid(row=14, column=0, columnspan=2, sticky="we", pady=(12, 10))
 
     # ===== Paste List Options =====
-    ttk.Label(frm, text="Paste List Options").grid(row=15, column=0, columnspan=2, sticky="w", pady=(0, 6))
+    ttk.Label(frm, text="Paste List Options").grid(
+        row=15, column=0, columnspan=2, sticky="w", pady=(0, 6)
+    )
 
     v_bul = tk.BooleanVar(value=transforms.get("bulletize_lists", False))
-    cb_bul = ttk.Checkbutton(frm, text="Make plain lines into list items", variable=v_bul)
+    cb_bul = ttk.Checkbutton(frm, text="Turn new lines into bullet points", variable=v_bul)
     cb_bul.grid(row=16, column=0, columnspan=2, sticky="w")
 
     # Derive UI style from bullet_char only (no bullet_style persisted)
@@ -362,13 +377,12 @@ def open_settings_window(root: tk.Tk):
     default_style = "numbered" if ch == "1" else ("dash" if ch == "-" else "bullet")
     v_style = tk.StringVar(value=default_style)
 
-    ttk.Label(frm, text="List style").grid(row=17, column=0, sticky="w", pady=(4, 0))
     style_frame = ttk.Frame(frm)
-    style_frame.grid(row=15, column=1, sticky="w")
+    style_frame.grid(row=16, column=1, sticky="w")
 
     rb_bullet = ttk.Radiobutton(style_frame, text="• Bullet", value="bullet", variable=v_style)
-    rb_dash   = ttk.Radiobutton(style_frame, text="- Dash",   value="dash",   variable=v_style)
-    rb_num    = ttk.Radiobutton(style_frame, text="1. 2. 3.", value="numbered", variable=v_style)
+    rb_dash = ttk.Radiobutton(style_frame, text="- Dash", value="dash", variable=v_style)
+    rb_num = ttk.Radiobutton(style_frame, text="1. 2. 3.", value="numbered", variable=v_style)
     rb_bullet.grid(row=0, column=0, padx=(0, 10))
     rb_dash.grid(row=0, column=1, padx=(0, 10))
     rb_num.grid(row=0, column=2)
@@ -380,6 +394,7 @@ def open_settings_window(root: tk.Tk):
                 w.state([state])
             except Exception:
                 w.configure(state=state)
+
     _toggle_style()
     v_bul.trace_add("write", _toggle_style)
 
@@ -394,9 +409,9 @@ def open_settings_window(root: tk.Tk):
     def save_settings():
         # Read strings from readonly vars
         c_hist = var_hist.get().strip()
-        c_set  = var_set.get().strip()
-        c_qp   = var_qp.get().strip()
-        c_pl   = var_pl.get().strip()
+        c_set = var_set.get().strip()
+        c_qp = var_qp.get().strip()
+        c_pl = var_pl.get().strip()
 
         # Validate syntax
         combos = [("Open Paste", c_hist), ("Open Settings", c_set),
@@ -422,20 +437,20 @@ def open_settings_window(root: tk.Tk):
         try:
             # Hotkeys
             hotkeys[Action.OPEN_PASTE_SELECTOR] = c_hist
-            hotkeys[Action.SHOW_SETTING]        = c_set
-            hotkeys[Action.FIX_PASTE_TEXT]      = c_qp
-            hotkeys[Action.FIX_PASTE_LIST]      = c_pl
+            hotkeys[Action.SHOW_SETTING] = c_set
+            hotkeys[Action.FIX_PASTE_TEXT] = c_qp
+            hotkeys[Action.FIX_PASTE_LIST] = c_pl
 
             # Text transforms
             transforms["combine_paragraphs"] = bool(v_combine.get())
-            transforms["join_broken_lines"]  = bool(v_join.get())
+            transforms["join_broken_lines"] = bool(v_join.get())
             if v_indent_on.get():
                 transforms["indent_mode"] = True
                 transforms["indent_size"] = int(v_size.get() or 0)
             else:
                 transforms["indent_mode"] = False
             transforms["fix_whitespace"] = bool(v_fix_whitespace.get())
-            transforms["combine_words"] = bool(v_fix_broken_words.get())    
+            transforms["combine_words"] = bool(v_fix_broken_words.get())
 
             # List transforms
             transforms["bulletize_lists"] = bool(v_bul.get())

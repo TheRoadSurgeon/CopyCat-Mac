@@ -9,6 +9,7 @@ import time
 import threading
 import sys
 import platform
+
 import pyperclip
 
 import core.text_cleaner as tc
@@ -23,6 +24,7 @@ last_copied = ""
 
 # When True, all paste/restore actions become no-ops (used on app quit)
 _SHUTTING_DOWN = False
+
 
 def begin_shutdown():
     """Call this before quitting to prevent any late paste/restore artifacts."""
@@ -39,6 +41,7 @@ def _get_clipboard_text() -> str:
     except Exception:
         return ""
 
+
 def _safe_copy(text: str) -> bool:
     if _SHUTTING_DOWN:
         return False
@@ -47,6 +50,7 @@ def _safe_copy(text: str) -> bool:
         return True
     except Exception:
         return False
+
 
 def _restore_clipboard_async(original: str, delay_sec: float = 0.35) -> None:
     def _worker():
@@ -58,14 +62,18 @@ def _restore_clipboard_async(original: str, delay_sec: float = 0.35) -> None:
             pyperclip.copy(original or "")
         except Exception:
             pass
+
     threading.Thread(target=_worker, daemon=True).start()
+
 
 def _paste_via_clipboard(text: str, restore_original: bool = True) -> bool:
     if _SHUTTING_DOWN:
         return False
+
     original = _get_clipboard_text() if restore_original else ""
     if not _safe_copy(text):
         return False
+
     try:
         time.sleep(0.06)
         if _SHUTTING_DOWN:
@@ -103,20 +111,23 @@ def _settings_transforms():
         return {}
     return sm.settings.get("transforms", {}) or {}
 
+
 def _apply_text_transforms(text: str) -> str:
+    """
+    Apply text transforms according to current settings.
+    Order (friend's improvements + your original options):
+
+      1) combine_words      -> fix words broken by hyphen/line breaks
+      2) fix_whitespace     -> normalize spaces/tabs
+      3) join_broken_lines  -> join soft line-wraps (preserve paragraphs)
+      4) combine_paragraphs -> collapse paragraphs into one flowing block
+      5) indent_mode        -> optional indentation of all lines
+    """
     t = _settings_transforms()
     out = text or ""
 
-    if t.get("fix_whitespace"):
-        out = tc.clean_spaces(out)
-
-    if t.get("join_broken_lines"):
-        out = tc.join_paragraphs(out)
-
-    if t.get("combine_paragraphs"):
-        out = tc.combine_paragraphs(out)
-
-    if t.get("combine_words", False):
+    # 1) Combine broken words first (handles hyphenated line breaks)
+    if t.get("combine_words"):
         try:
             cw = tc.combine_words(out)
             if isinstance(cw, str) and cw:
@@ -124,8 +135,38 @@ def _apply_text_transforms(text: str) -> str:
         except Exception:
             pass
 
+    # 2) Whitespace normalization
+    if t.get("fix_whitespace"):
+        out = tc.clean_spaces(out)
+
+    # 3) Join wrapped lines (preserve paragraph breaks where possible)
+    if t.get("join_broken_lines"):
+        join_lines = getattr(tc, "join_lines", None)
+        if callable(join_lines):
+            out = join_lines(out)
+        else:
+            # Fallback: treat as a full paragraph join if join_lines is missing
+            join_paragraphs = getattr(tc, "join_paragraphs", None)
+            if callable(join_paragraphs):
+                out = join_paragraphs(out)
+
+    # 4) Combine paragraphs into a single flowing block (no newlines)
+    if t.get("combine_paragraphs"):
+        join_paragraphs = getattr(tc, "join_paragraphs", None)
+        if callable(join_paragraphs):
+            out = join_paragraphs(out)
+        else:
+            # Fallback to combine_paragraphs if older helper exists
+            combine_paragraphs = getattr(tc, "combine_paragraphs", None)
+            if callable(combine_paragraphs):
+                out = combine_paragraphs(out)
+
+    # 5) Optional indentation
     mode = t.get("indent_mode", False)
-    indent_on = (mode is True) or (isinstance(mode, str) and mode.strip().lower() not in ("", "none", "false", "0"))
+    indent_on = (
+        (mode is True)
+        or (isinstance(mode, str) and mode.strip().lower() not in ("", "none", "false", "0"))
+    )
     if indent_on:
         try:
             size = int(t.get("indent_size", 0) or 0)
@@ -156,6 +197,7 @@ def _set_clipboard_html_mac(html: str, plain_fallback: str = "") -> bool:
         return True
     except Exception:
         return False
+
 
 def _set_clipboard_html_win(cf_html: str) -> bool:
     try:
@@ -210,6 +252,7 @@ def fix_paste_text():
             type_text(output)
     except Exception:
         pass
+
 
 def fix_paste_list():
     if _SHUTTING_DOWN:

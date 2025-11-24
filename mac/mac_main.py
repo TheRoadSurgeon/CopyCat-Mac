@@ -21,6 +21,7 @@ from mac.permissions import (
     open_accessibility_pane,
     open_input_monitoring_pane,
 )
+from ui.popup_menu import show_popup
 
 assert platform.system() == "Darwin", "mac_main.py is for macOS builds only."
 
@@ -36,18 +37,32 @@ def process_requests(root: tk.Tk):
     try:
         while True:
             action = _requests.get_nowait()
+            # Debug (optional)
+            # print("ACTION:", action)
+
             if action == Action.OPEN_PASTE_SELECTOR:
-                # TODO: hook your popup if/when needed
-                pass
+                # Same behavior as main.pyw: show the popup selector
+                root.after(0, lambda: show_popup(root))
+
             elif action == Action.FIX_PASTE_LIST:
                 cm.fix_paste_list()
+
             elif action == Action.FIX_PASTE_TEXT:
                 cm.fix_paste_text()
+
+            elif action == Action.APPLY_SETTINGS:
+                # Hook here if you ever want to react live to settings changes
+                pass
+
+            elif action == Action.SHOW_HISTORY:
+                print("SHOW_HISTORY triggered")
+
             elif action == Action.SHOW_SETTING:
                 now = time.time()
                 if now - _last_settings_open >= _SETTINGS_DEBOUNCE_SEC:
                     _last_settings_open = now
                     root.after(0, lambda: open_settings_window(root))
+
     except queue.Empty:
         pass
     # tick again
