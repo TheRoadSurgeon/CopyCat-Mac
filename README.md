@@ -1,90 +1,147 @@
-# Project Setup (Python + Virtual Environment)
+# CopyCat-Mac
 
-This project uses a local Python **virtual environment** so everyone’s packages stay isolated.
+CopyCat is a desktop clipboard manager built with Python and Tkinter.
 
----
+This repository contains the macOS-focused version of CopyCat, including setup steps, build instructions, and packaging notes.
 
-macOS / Linux
+## Features
+
+* Clipboard history tracking
+* Tkinter-based desktop interface
+* macOS app packaging with PyInstaller
+* Windows executable build notes
+* Lightweight local setup using a Python virtual environment
+
+## Project Setup
+
+This project uses a local Python virtual environment so dependencies stay isolated from your system Python installation.
+
+### macOS / Linux
 
 ```bash
-# 1) Check Python 3 is installed
+# 1) Check that Python 3 is installed
 python3 --version
 
-# 2) Create a local virtual environment in the project folder
+# 2) Create a virtual environment in the project folder
 python3 -m venv .venv
 
-# 3) Activate the virtual environment (you should see (.venv) in your prompt)
+# 3) Activate the virtual environment
 source .venv/bin/activate
 
-# 4) Upgrade pip (optional but recommended)
-python -m pip install --upgrade pip
-
-# 5) Install project dependencies
-#    Make sure requirements.txt is in the project root
-pip install -r requirements.txt
-
-# (Optional) When done working, deactivate the venv
-# deactivate
-
-
-Windows (PowerShell)
-
-
-# 1) Check Python is installed
-py --version
-
-# 2) Create a local virtual environment in the project folder
-py -m venv .venv
-
-# 3) Activate the virtual environment (you should see (.venv) in your prompt)
-. .\.venv\Scripts\Activate.ps1
-
-#   If activation is blocked, run this once in the same PowerShell window:
-#   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-
-# 4) Upgrade pip (optional but recommended)
+# 4) Upgrade pip
 python -m pip install --upgrade pip
 
 # 5) Install project dependencies
 pip install -r requirements.txt
-
-# (Optional) When done working, deactivate the venv
-# deactivate
 ```
 
-## Creating Installation Executable (Mac)
-How to build the app. 
-Make sure you have the CopyCat_mac.spec file first.
+When you are done working:
 
+```bash
+deactivate
+```
+
+### Windows PowerShell
+
+```powershell
+# 1) Check that Python is installed
+py --version
+
+# 2) Create a virtual environment in the project folder
+py -m venv .venv
+
+# 3) Activate the virtual environment
+. .\.venv\Scripts\Activate.ps1
+
+# 4) Upgrade pip
+python -m pip install --upgrade pip
+
+# 5) Install project dependencies
+pip install -r requirements.txt
+```
+
+If PowerShell blocks activation, run this in the same PowerShell window:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+When you are done working:
+
+```powershell
+deactivate
+```
+
+## Building the macOS App
+
+Make sure `CopyCat_mac.spec` exists in the project root before building.
+
+```bash
+# Activate the virtual environment
 source .venv/bin/activate
+
+# Install or update dependencies
 python3 -m pip install -U -r requirements.txt
 
+# Remove old build files
 rm -rf build dist
- pyinstaller CopyCat_mac.spec
 
-# if you need to kill any old versions and copy it into the application folder
+# Build the macOS app
+pyinstaller CopyCat_mac.spec
+```
+
+The built app should appear in:
+
+```txt
+dist/CopyCat.app
+```
+
+### Copy the App to Applications
+
+```bash
+# Stop any currently running version of CopyCat
 killall CopyCat 2>/dev/null || true
+
+# Copy the new app into the Applications folder
 cp -R dist/CopyCat.app /Applications/
+```
 
-# This one is great for error checking in the terminal
+### Run the App from the Terminal
+
+This is useful for debugging because errors will show directly in the terminal.
+
+```bash
 "/Applications/CopyCat.app/Contents/MacOS/CopyCat"
+```
 
+## Building the Windows Executable
 
-## Creating Installation Executable (Windows)
-Execute `pyinstaller --noconsole --onefile --name CopyCat main.py` to create a CopyCat.exe
+Use PyInstaller to create a Windows executable:
 
-Use `installCopyCat.iss` to create a installation exe in Ino Setup Compiler
+```powershell
+pyinstaller --noconsole --onefile --name CopyCat main.py
+```
 
-## NOTES/TIPS
-Tkinter Key Rule for Our App
+This creates:
 
-Only one Tk() root per program – creating another causes crashes, freezes, or silent failures.
+```txt
+dist/CopyCat.exe
+```
 
-Use Toplevel(root) for any extra windows (popups, dialogs).
+To create a Windows installer, open `installCopyCat.iss` in Inno Setup Compiler and build the installer from there.
 
-Do not call mainloop() on Toplevel – the main root already runs it.
+## Tkinter Notes
 
-GUI must run on the main thread – use a queue or root.after() to safely trigger popups from background threads (like hotkeys).
+This app uses Tkinter, so window management needs to follow a few important rules:
 
-✅ This ensures all windows share the same event loop and data (like clipboard_history).
+* Use only one `Tk()` root per program.
+* Use `Toplevel(root)` for additional windows, popups, and dialogs.
+* Do not call `mainloop()` on a `Toplevel` window. The main root already runs the event loop.
+* Keep GUI updates on the main thread.
+* Use a queue or `root.after()` when background threads, such as hotkey listeners, need to trigger GUI updates.
 
+Following these rules helps prevent crashes, freezes, silent failures, and event loop bugs.
+
+## Developer Notes
+
+If the app behaves differently after packaging, run it from the terminal first. This usually makes missing files, import errors, or Tkinter issues easier to see.
